@@ -318,10 +318,17 @@ class nablaVAE:
         }
 
         reconstruction_loss_gradient = -(hamiltonian_data - self.decoder_forward(latent_vector, config))
-        parameter_gradients['decoder_fc3_weights'] = np.dot(
-            reconstruction_loss_gradient.T,
-            latent_vector,
-        )
+        
+        # Note: if a, b are np.arrays, and c, d are equivalent torch.Tensors, and b.ndim >= 2, then
+        # np.dot(a, b) =~ (c * d.T).sum(-1)
+        # torch.dot(a, b) only supports 1d tensors
+        parameter_gradients['decoder_fc3_weights'] = (
+            reconstruction_loss_gradient.T * latent_vector.T
+        ).sum(-1)
+        #parameter_gradients['decoder_fc3_weights'] = np.dot(
+        #    reconstruction_loss_gradient.T,
+        #    latent_vector,
+        #)
         #parameter_gradients['decoder_fc3_bias'] = torch.sum(reconstruction_loss_gradient, axis=0)
 
         #reconstruction_loss_gradient = reconstruction_loss_gradient.flatten()
