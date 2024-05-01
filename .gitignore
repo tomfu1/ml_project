@@ -1,3 +1,5 @@
 *.py[cod]
 env/
 dataset_train_2k.db
+main.yaml
+cloud.yaml

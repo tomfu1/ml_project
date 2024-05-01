@@ -15,3 +15,4 @@ learning_rate: 0.0001
 num_epochs: 25
 start_row_idx: 0
 test_size: 0.2
+use_gpu: true
