@@ -9,14 +9,9 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
 import torch.nn.functional as F
-from ruamel.yaml import YAML
+import yaml
 
-if torch.cuda.is_available():
-    device = "cuda"
-#elif torch.backends.mps.is_available():
-#    device = "mps"
-else:
-    device = "cpu"
+device = "cpu"
 
 def main(config):
     train = hamiltonian_dataset.HamiltonianDatabase(config.dataset_path)
@@ -163,6 +158,7 @@ class Config:
         num_epochs=25,
         start_row_idx=0,
         test_size=0.2,
+        use_gpu=True,
     ):
         self.adam_beta1 = adam_beta1
         self.adam_beta2 = adam_beta2
@@ -181,6 +177,7 @@ class Config:
         self.num_epochs = num_epochs
         self.start_row_idx = start_row_idx
         self.test_size = test_size
+        self.use_gpu = use_gpu
 
 class nablaVAE:
     def __init__(self, hamiltonian_input_shape, config):
@@ -275,10 +272,102 @@ class nablaVAE:
         total_loss = reconstruction_loss + kl_divergence + energy_data
 
         ## Backward pass and parameter update
-        #gradients = self.backward(padded_hamiltonian_data, latent_vector, latent_mean, latent_log_var, energy_data)
-        ##self.update_parameters(gradients)
+        gradients = self.backward(
+            padded_hamiltonian_data,
+            latent_vector,
+            latent_mean,
+            latent_log_var,
+            energy_data,
+            config,
+        )
+        #self.update_parameters(gradients)
 
         #return total_loss, latent_mean, latent_log_var, reconstructed_output, latent_vector, padded_hamiltonian_data
+
+    def backward(
+        self,
+        hamiltonian_data,
+        latent_vector,
+        latent_mean,
+        latent_log_var,
+        energy_data,
+        config,
+    ):
+        # Initialize gradients
+        parameter_gradients = {
+            'encoder_fc1_weights': to_torch(np.zeros_like(self.encoder_fc1_weights)),
+            'encoder_fc1_bias': to_torch(np.zeros_like(self.encoder_fc1_bias)),
+            'encoder_fc2_weights_mean': to_torch(np.zeros_like(self.encoder_fc2_weights_mean)),
+            'encoder_fc2_bias_mean': to_torch(np.zeros_like(self.encoder_fc2_bias_mean)),
+            'encoder_fc2_weights_log_var': to_torch(np.zeros_like(self.encoder_fc2_weights_log_var)),
+            'encoder_fc2_bias_log_var': to_torch(np.zeros_like(self.encoder_fc2_bias_log_var)),
+            'decoder_fc1_weights': to_torch(np.zeros_like(self.decoder_fc1_weights)),
+            'decoder_fc1_bias': to_torch(np.zeros_like(self.decoder_fc1_bias)),
+            'conv1_weights': to_torch(np.zeros_like(self.conv1_weights)),
+            'conv1_bias': to_torch(np.zeros_like(self.conv1_bias)),
+            'conv2_weights': to_torch(np.zeros_like(self.conv2_weights)),
+            'conv2_bias': to_torch(np.zeros_like(self.conv2_bias)),
+            'conv3_weights': to_torch(np.zeros_like(self.conv3_weights)),
+            'conv3_bias': to_torch(np.zeros_like(self.conv3_bias)),
+            'conv4_weights': to_torch(np.zeros_like(self.conv4_weights)),
+            'conv4_bias': to_torch(np.zeros_like(self.conv4_bias)),
+            'decoder_fc2_weights': to_torch(np.zeros_like(self.decoder_fc2_weights)),
+            'decoder_fc2_bias': to_torch(np.zeros_like(self.decoder_fc2_bias)),
+            'decoder_fc3_weights': to_torch(np.zeros_like(self.decoder_fc3_weights)),
+            'decoder_fc3_bias': to_torch(np.zeros_like(self.decoder_fc3_bias)),
+        }
+
+        reconstruction_loss_gradient = -(hamiltonian_data - self.decoder_forward(latent_vector, config))
+        
+        # Note: if a, b are np.arrays, and c, d are equivalent torch.Tensors, and b.ndim >= 2, then
+        # np.dot(a, b) =~ (c * d.T).sum(-1)
+        # torch.dot(a, b) only supports 1d tensors
+        parameter_gradients['decoder_fc3_weights'] = (
+            reconstruction_loss_gradient.T * latent_vector.T
+        ).sum(-1)
+        #parameter_gradients['decoder_fc3_weights'] = np.dot(
+        #    reconstruction_loss_gradient.T,
+        #    latent_vector,
+        #)
+        #parameter_gradients['decoder_fc3_bias'] = torch.sum(reconstruction_loss_gradient, axis=0)
+
+        #reconstruction_loss_gradient = reconstruction_loss_gradient.flatten()
+
+        ## Backpropagate gradients through fully connected layers
+        #decoder_fc2_gradient = np.dot(reconstruction_loss_gradient, self.decoder_fc3_weights.T)
+        #parameter_gradients['decoder_fc2_weights'] = np.dot(latent_vector.T, decoder_fc2_gradient)
+        #parameter_gradients['decoder_fc2_bias'] = np.sum(decoder_fc2_gradient, axis=0)
+
+        #decoder_fc1_gradient = np.dot(decoder_fc2_gradient, self.decoder_fc1_weights.T)
+        #parameter_gradients['decoder_fc1_weights'] = np.dot(latent_vector.T, decoder_fc1_gradient)
+        #parameter_gradients['decoder_fc1_bias'] = np.sum(decoder_fc1_gradient, axis=0)
+
+        #encoder_fc2_log_var_gradient = -0.5 * (1 + latent_log_var - latent_mean ** 2 - np.exp(latent_log_var))
+        #parameter_gradients['encoder_fc2_weights_log_var'] = np.dot(latent_vector.T, encoder_fc2_log_var_gradient)
+        #parameter_gradients['encoder_fc2_bias_log_var'] = np.sum(encoder_fc2_log_var_gradient, axis=0)
+
+        #encoder_fc2_mean_gradient = np.dot(latent_vector.T, latent_mean)
+        #parameter_gradients['encoder_fc2_weights_mean'] = encoder_fc2_mean_gradient
+        #parameter_gradients['encoder_fc2_bias_mean'] = np.sum(latent_mean, axis=0)
+
+        #encoder_fc1_gradient = np.dot(latent_mean, self.encoder_fc2_weights_mean.T) +
+        #                   np.dot(encoder_fc2_log_var_gradient, self.encoder_fc2_weights_log_var.T)
+        #parameter_gradients['encoder_fc1_weights'] = np.dot(hamiltonian_data.T, encoder_fc1_gradient)
+        #parameter_gradients['encoder_fc1_bias'] = np.sum(encoder_fc1_gradient, axis=0)
+
+        ## Backpropagate gradients through convolutional layers
+        #conv3_weights_gradient, conv3_bias_gradient = self.convolve2d_backprop(hamiltonian_data, reconstruction_loss_gradient, self.conv3_weights)
+        #parameter_gradients['conv3_weights'] = conv3_weights_gradient
+        #parameter_gradients['conv3_bias'] = conv3_bias_gradient
+
+        #conv4_weights_gradient, conv4_bias_gradient = self.convolve2d_backprop(hamiltonian_data, reconstruction_loss_gradient, self.conv4_weights)
+        #parameter_gradients['conv4_weights'] = conv4_weights_gradient
+        #parameter_gradients['conv4_bias'] = conv4_bias_gradient
+
+        ## Compute gradients for output layer
+
+
+        #return parameter_gradients
 
     def convolve2d(self, input_data, kernel, bias):
         input_height, input_width = input_data.shape
@@ -328,7 +417,7 @@ class nablaVAE:
         ## Flatten the output of the convolutional layers
         flattened_output = conv2_output.flatten()
 
-        padding_size =  np.prod(self.inputShape) - flattened_output.size()[0]
+        padding_size =  np.prod(self.inputShape) - flattened_output.shape[0]
         padded_output = F.pad(flattened_output, (0, padding_size), mode='constant')
 
         ## Forward pass through the fully connected layers
@@ -366,11 +455,21 @@ def to_torch(x):
 if __name__ == '__main__':
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
-    load = YAML(typ='rt')
     try:
         with open('main.yaml') as f:
-            config = load(f)
-    except Exception:
+            config = yaml.load(f, yaml.Loader)
+    except FileNotFoundError:
         config = {}
+    except Exception as e:
+        logging.warning(e)
+        config = {}
+    config = Config(**config)
 
-    main(Config(**config))
+    if config.use_gpu:
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+    logging.info(f'device: {device}')
+
+    main(config)
