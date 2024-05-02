@@ -65,7 +65,7 @@ def train_model(cvae, X_train, y, config):
     for epoch in range(config.num_epochs):
         logging.info(f"Epoch {epoch + 1}/{config.num_epochs}")
 
-        total_loss = 0
+        weighted_losses = []
         batch_total_loss = 0
         batch_gradients = None
         batch_count = 1
@@ -87,8 +87,8 @@ def train_model(cvae, X_train, y, config):
                     batch_gradients[k] += v
 
             if batch_count % config.batch_size == 0 or sample_idx == num_samples - 1:
+                weighted_losses.append((batch_count, batch_total_loss))
                 batch_total_loss /= batch_count
-                total_loss += batch_total_loss
                 for k, v in batch_gradients.items():
                     batch_gradients[k] /= batch_count 
                 cvae.update_parameters(batch_gradients, config.learning_rate)
@@ -103,7 +103,8 @@ def train_model(cvae, X_train, y, config):
 
             batch_count += 1
 
-        logging.info(f"Epoch {epoch + 1} Average Loss: {total_loss / batch_no}")
+        average_loss = float(sum(x * y for x, y in weighted_losses)) / sum(x for x, _ in weighted_losses)
+        logging.info(f"Epoch {epoch + 1} Average Loss: {average_loss}")
 
 class AdamOptimizer:
     def __init__(self, config):
