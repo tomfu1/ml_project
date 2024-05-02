@@ -15,11 +15,13 @@ device = "cpu"
 
 def main(config):
     train = hamiltonian_dataset.HamiltonianDatabase(config.dataset_path)
-    padded_X_train, padded_X_test, y_train, y_test, maxSize = process_dataset(train, config)
 
+    padded_X_train, padded_X_test, y_train, y_test, maxSize = process_dataset(train, config)
     logging.info(f'Max hamiltonian shape: {maxSize["H"]}')
 
     cvae = nablaVAE(maxSize["H"], config)
+
+    logging.info('Starting training ...')
     train_model(cvae, padded_X_train, y_train, config)
 
 def process_dataset(train_dataset, config, random_state=42):
@@ -63,14 +65,13 @@ def train_model(cvae, X_train, y, config):
     num_samples = len(X_train)
 
     for epoch in range(config.num_epochs):
-        logging.info(f"Epoch {epoch + 1}/{config.num_epochs}")
-
         weighted_losses = []
         batch_total_loss = 0
         batch_gradients = None
         batch_count = 1
         batch_no = 1
         batch_start = datetime.now()
+        epoch_start = datetime.now()
 
         for sample_idx in range(0, num_samples):
             hamiltonian_data = X_train[sample_idx]
@@ -93,7 +94,7 @@ def train_model(cvae, X_train, y, config):
                     batch_gradients[k] /= batch_count 
                 cvae.update_parameters(batch_gradients, config.learning_rate)
                 logging.debug(f'''Batch {epoch + 1} - {batch_no}:
-  Loss: {batch_total_loss}
+  Loss: {batch_total_loss:.4f}
   Duration: {datetime.now() - batch_start}''')
                 batch_total_loss = 0  # Reset batch loss for the next batch
                 batch_gradients = None  # Reset batch gradients for the next batch
@@ -104,7 +105,9 @@ def train_model(cvae, X_train, y, config):
             batch_count += 1
 
         average_loss = float(sum(x * y for x, y in weighted_losses)) / sum(x for x, _ in weighted_losses)
-        logging.info(f"Epoch {epoch + 1} Average Loss: {average_loss}")
+        logging.info(f'''Epoch {epoch + 1}:
+  Average Loss: {average_loss:.4f}
+  Duration: {datetime.now() - epoch_start}''')
 
 class AdamOptimizer:
     def __init__(self, config):
@@ -196,7 +199,7 @@ class nablaVAE:
     def train_step(self, hamiltonian_data, energy_data, config):
         # Forward pass--
         hamiltonian_data = torch.from_numpy(hamiltonian_data).to(device)
-        hamiltonian_data = self.min_max_normalize(hamiltonian_data)
+        hamiltonian_data = self.normalize_data(hamiltonian_data)
 
         latent_mean, latent_log_var = self.encoder_forward(hamiltonian_data, config)
         latent_vector = self.reparameterize(latent_mean, latent_log_var)
