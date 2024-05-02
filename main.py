@@ -197,15 +197,20 @@ class nablaVAE:
         # Forward pass--
         hamiltonian_data = torch.from_numpy(hamiltonian_data).to(device)
         hamiltonian_data = self.min_max_normalize(hamiltonian_data)
+
         latent_mean, latent_log_var = self.encoder_forward(hamiltonian_data, config)
         latent_vector = self.reparameterize(latent_mean, latent_log_var)
+
         reconstructed_output = self.decoder_forward(latent_vector, config)
+
+        latent_mean = self.normalize_data(latent_mean)
+        latent_log_var = self.normalize_data(latent_log_var)
+        reconstructed_output = self.normalize_data(reconstructed_output)
 
         padded_hamiltonian_data = F.pad(hamiltonian_data, (
             0, reconstructed_output.shape[0] - hamiltonian_data.shape[0],
             0, reconstructed_output.shape[1] - hamiltonian_data.shape[1],
         ))
-
 
         ## Compute reconstruction loss
         reconstruction_loss = torch.mean((padded_hamiltonian_data - reconstructed_output) ** 2)
