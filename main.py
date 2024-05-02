@@ -417,7 +417,7 @@ class nablaVAE:
         ## Flatten the output of the convolutional layers
         flattened_output = conv2_output.flatten()
 
-        padding_size =  np.prod(self.inputShape) - flattened_output.size()[0]
+        padding_size =  np.prod(self.inputShape) - flattened_output.shape[0]
         padded_output = F.pad(flattened_output, (0, padding_size), mode='constant')
 
         ## Forward pass through the fully connected layers
@@ -470,6 +470,6 @@ if __name__ == '__main__':
             device = "cuda"
         elif torch.backends.mps.is_available():
             device = "mps"
-
     logging.info(f'device: {device}')
+
     main(config)
