@@ -11,6 +11,7 @@ encoder_convolution2_kernel: [3, 3]
 end_row_idx: 1000
 latent_dim: 100
 leaky_relu_alpha: 0.2
+leaky_relu_derivative_alpha: 0.01
 learning_rate: 0.0001
 num_epochs: 25
 start_row_idx: 0
