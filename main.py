@@ -94,7 +94,7 @@ def train_model(cvae, X_train, y, config):
                     batch_gradients[k] /= batch_count 
                 cvae.update_parameters(batch_gradients, config.learning_rate)
                 logging.debug(f'''Batch {epoch + 1} - {batch_no}:
-  Loss: {batch_total_loss:.4f}
+  Loss: {batch_total_loss}
   Duration: {datetime.now() - batch_start}''')
                 batch_total_loss = 0  # Reset batch loss for the next batch
                 batch_gradients = None  # Reset batch gradients for the next batch
@@ -106,7 +106,7 @@ def train_model(cvae, X_train, y, config):
 
         average_loss = float(sum(x * y for x, y in weighted_losses)) / sum(x for x, _ in weighted_losses)
         logging.info(f'''Epoch {epoch + 1}:
-  Average Loss: {average_loss:.4f}
+  Average Loss: {average_loss}
   Duration: {datetime.now() - epoch_start}''')
 
 class AdamOptimizer:
