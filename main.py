@@ -491,11 +491,9 @@ class nablaVAE:
         return mu + torch.exp(0.5 * log_var) * epsilon
 
     def update_parameters(self, gradients, learning_rate):
-        zipped = zip(gradients.items(), self.parameters.items())
-        for (param_name, param_gradient), (param_name, param_value) in zipped:
-            # Update parameters based on gradients
-            self.parameters[param_name] -= learning_rate * param_value
-
+        for k in gradients:
+            value = getattr(self, k)
+            setattr(self, k, value - learning_rate * value)
 
 class Config:
     def __init__(
