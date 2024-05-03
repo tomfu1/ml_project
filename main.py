@@ -552,14 +552,14 @@ if __name__ == '__main__':
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    config = None
     try:
         with open(args.config) as f:
             config = yaml.load(f, yaml.Loader)
     except FileNotFoundError:
-        config = {}
+        pass
     except Exception as e:
         logging.warning(e)
-        config = {}
     config = Config(**(config or {}))
 
     if config.use_gpu:
