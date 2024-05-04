@@ -32,8 +32,7 @@ def train(X, y, config):
             batch_gradients = None
             batch_loss = 0
             for x, target in zip(X_batch, y_batch):
-                result = cvae.train_step(x, target, config)
-                loss, latent_mean, latent_log, reconstructed_output, latent_vector, gradients = result
+                loss, gradients = cvae.train_step(x, target, config)
 
                 batch_loss += loss
                 if batch_gradients is None:
@@ -52,9 +51,9 @@ def train(X, y, config):
   Loss: {batch_loss}
   Duration: {datetime.now() - batch_start}''')
 
-        average_loss = float(sum(x * y for x, y in losses)) / sum(x for x, _ in losses)
+        loss = float(sum(x * y for x, y in losses)) / sum(x for x, _ in losses)
         logging.info(f'''Epoch {epoch + 1}:
-  Average Loss: {average_loss}
+  Average Loss: {loss}
   Duration: {datetime.now() - epoch_start}''')
 
 def process_dataset(database, config):
@@ -140,11 +139,13 @@ class nablaVAE:
         # Forward pass--
         x = normalize(x)
 
-        latent_mean, latent_log = self.encoder_forward(x, config)
+        activations = {}
+        self.encoder_forward(x, config, activations)
+        latent_mean, latent_log = activations['latent_mean'], activations['latent_log']
         latent_vector = reparameterize(latent_mean, latent_log)
 
-        reconstructed_output = self.decoder_forward(latent_vector, config)
-        reconstructed_output = normalize(reconstructed_output)
+        self.decoder_forward(latent_vector, config, activations)
+        reconstructed_output = activations['decoder_fc3'].reshape(self.input_shape)
 
         ## Compute reconstruction loss
         reconstruction_loss = torch.mean((x - reconstructed_output) ** 2)
@@ -159,199 +160,102 @@ class nablaVAE:
         # Backward pass and parameter update
         gradients = self.backward(
             x,
+            reconstruction_loss,
+            kl_divergence,
             latent_vector,
             latent_mean,
             latent_log,
             energy_data,
             config,
+            activations,
         )
 
-        return (
-            total_loss,
-            latent_mean,
-            latent_log,
-            reconstructed_output,
-            latent_vector,
-            gradients,
-        )
+        return reconstruction_loss + kl_divergence + energy_data, gradients
 
     def backward(
         self,
         x,
+        reconstruction_loss,
+        kl_divergence,
         latent_vector,
         latent_mean,
         latent_log,
         energy_data,
         config,
+        activations,
     ):
-        # Initialize gradients
-        gradients = {
-            k: torch.zeros_like(getattr(self, k), device=device)
-            for k in [
-                'encoder_fc1_weights',
-                'encoder_fc1_bias',
-                'encoder_fc2_weights_mean',
-                'encoder_fc2_bias_mean',
-                'encoder_fc2_weights_log_var',
-                'encoder_fc2_bias_log_var',
-                'decoder_fc1_weights',
-                'decoder_fc1_bias',
-                'decoder_fc2_weights',
-                'decoder_fc2_bias',
-                'decoder_fc3_weights',
-                'decoder_fc3_bias',
-            ]
-        }
+        gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3']) }
 
-        reconstruction_loss_gradient = -(x - self.decoder_forward(latent_vector, config))
-        reconstruction_loss_gradient = reconstruction_loss_gradient.flatten()
-        decoder_fc3_activation_gradient = reconstruction_loss_gradient
-
-        # Compute gradient with respect to weights of decoder_fc3
-        gradients['decoder_fc3_weights'] = (
-            decoder_fc3_activation_gradient * self.decoder_fc3_weights
-        ).sum(-1)
-
-        # Compute gradient with respect to bias of decoder_fc3
-        gradients['decoder_fc3_bias'] = torch.sum(decoder_fc3_activation_gradient, axis=0)
-
-        reshaped_outputfc3 = self.pad_output_for_backward_pass(
-            decoder_fc3_activation_gradient,
-            self.decoder_fc2_weights.shape,
-        )
-
-        # Compute gradient of reconstruction loss with respect to activations of decoder_fc2
-        decoder_fc2_activation_gradient = torch.matmul(reshaped_outputfc3, self.decoder_fc2_weights.T)
-        decoder_fc2_activation_gradient *= leaky_relu_derivative(
-            decoder_fc2_activation_gradient,
+        t = gradients['decoder_fc3_weights'] @ self.decoder_fc3_weights.T
+        gradients['decoder_fc2_weights'] = t * leaky_relu_derivative(
+            activations['decoder_fc2'],
             config.leaky_relu_derivative_alpha,
         )
 
-        # Compute gradient with respect to weights of decoder_fc2
-        gradients['decoder_fc2_weights'] = torch.matmul(
-            decoder_fc2_activation_gradient,
-            self.decoder_fc2_weights,
-        )
-
-        # Compute gradient with respect to bias of decoder_fc2
-        gradients['decoder_fc2_bias'] = torch.sum(decoder_fc2_activation_gradient, axis=0)
-
-        # Compute gradient of reconstruction loss with respect to activations of decoder_fc1
-        decoder_fc1_activation_gradient = torch.matmul(decoder_fc2_activation_gradient, self.decoder_fc1_weights.T)
-        decoder_fc1_activation_gradient *= leaky_relu_derivative(
-            decoder_fc1_activation_gradient,
+        t = gradients['decoder_fc2_weights'] @ self.decoder_fc2_weights.T
+        gradients['decoder_fc1_weights'] = t * leaky_relu_derivative(
+            activations['decoder_fc1'],
             config.leaky_relu_derivative_alpha,
         )
 
-        # Compute gradient with respect to weights of decoder_fc1
-        gradients['decoder_fc1_weights'] = torch.matmul(decoder_fc1_activation_gradient, self.decoder_fc1_weights)
-
-        # Compute gradient with respect to bias of decoder_fc1
-        gradients['decoder_fc1_bias'] = torch.sum(decoder_fc1_activation_gradient, axis=0)
-
-        # Compute gradient of KL divergence term
-        kl_div_mean_gradient = 0.5 * (2 * latent_mean)
-        kl_div_log_var_gradient = 0.5 * (1 - torch.exp(latent_log))
-
-        num_elements = len(reconstruction_loss_gradient)
-        padding_size = len(reconstruction_loss_gradient) - len(kl_div_mean_gradient)
-
-        padded_kl_div_mean_gradient = F.pad(
-            kl_div_mean_gradient,
-            (0, padding_size),
-            mode='constant',
-        )
-        padded_kl_div_log_var_gradient = F.pad(
-            kl_div_log_var_gradient,
-            (0, padding_size),
-            mode='constant',
-        )
- 
-        encoder_fc2_mean_gradient = reconstruction_loss_gradient * padded_kl_div_mean_gradient
-        encoder_fc2_log_var_gradient = reconstruction_loss_gradient * padded_kl_div_log_var_gradient
-
-        target_size = (100 * 64) * ((encoder_fc2_mean_gradient.shape[0] + (100 * 64) - 1) // (100 * 64))
-
-        # Pad the gradients to match the target size
-        padding_size = target_size - len(encoder_fc2_mean_gradient)
-        padded_gradients_mean = F.pad(encoder_fc2_mean_gradient, (0, padding_size), mode='constant')
-        padded_gradients_log_var = F.pad(encoder_fc2_log_var_gradient, (0, padding_size), mode='constant')
-
-        # Reshape the padded gradients to match the shape of the FC2 encoder layer
-        reshaped_gradients_mean = padded_gradients_mean[:100*64].reshape((100, 64))
-        reshaped_gradients_log_var = padded_gradients_log_var[:100*64].reshape((100, 64))
-
-        # Compute gradient with respect to weights of encoder_fc2_mean
-        gradients['encoder_fc2_weights_mean'] = torch.matmul(self.encoder_fc2_weights_mean, reshaped_gradients_mean)
-
-        # Compute gradient with respect to bias of encoder_fc2_mean
-        gradients['encoder_fc2_bias_mean'] = torch.sum(reshaped_gradients_mean, axis=0)
-
-        # Compute gradient with respect to weights of encoder_fc2_log_var
-        gradients['encoder_fc2_weights_log_var'] = torch.matmul(
-            self.encoder_fc2_weights_log_var,
-            reshaped_gradients_log_var,
-        )
-
-        ## Compute gradient with respect to bias of encoder_fc2_log_var
-        gradients['encoder_fc2_bias_log_var'] = torch.sum(reshaped_gradients_log_var, axis=0)
-
-        # Compute gradient of encoder_fc1
-        encoder_fc1_activation_gradient = torch.matmul(
-            reshaped_gradients_mean,
-            self.encoder_fc1_weights.T,
-        )
-        encoder_fc1_activation_gradient += torch.matmul(
-            reshaped_gradients_log_var, 
-            self.encoder_fc1_weights.T,
-        )
-        encoder_fc1_activation_gradient *= leaky_relu_derivative(
-            encoder_fc1_activation_gradient,
+        t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
+        gradients['encoder_fc2_weights_mean'] = t * leaky_relu_derivative(
+            activations['latent_mean'],
             config.leaky_relu_derivative_alpha,
         )
+        kl_div_mean = 0.5 * (2 * latent_mean)
+        gradients['encoder_fc2_weights_mean'] += kl_div_mean
 
-        # Compute gradient with respect to weights of encoder_fc1
-        gradients['encoder_fc1_weights'] = torch.matmul(
-            self.encoder_fc1_weights.T,
-            encoder_fc1_activation_gradient.T,
+        t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
+        gradients['encoder_fc2_weights_log_var'] = t * leaky_relu_derivative(
+            activations['latent_log'],
+            config.leaky_relu_derivative_alpha,
         )
+        kl_div_log_var = 0.5 * (1 - torch.exp(latent_log))
+        gradients['encoder_fc2_weights_log_var'] += kl_div_log_var
 
-        # Compute gradient with respect to bias of encoder_fc1
-        gradients['encoder_fc1_bias'] = torch.sum(encoder_fc1_activation_gradient, axis=0)
+        t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
+        gradients['encoder_fc1_weights'] = t * leaky_relu_derivative(
+            activations['encoder_fc1'],
+            config.leaky_relu_derivative_alpha,
+        )
 
         return gradients
 
-    def decoder_forward(self, latent_vector, config):
+    def decoder_forward(self, latent_vector, config, activations):
         # Forward pass through the decoder
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
         fc1_output = leaky_relu(fc1_output, config.leaky_relu_alpha)
         fc1_output = normalize(fc1_output)
+        activations['decoder_fc1'] = fc1_output
 
         fc2_output = fc1_output @ self.decoder_fc2_weights + self.decoder_fc2_bias
         fc2_output = leaky_relu(fc2_output, config.leaky_relu_alpha)
+        fc2_output = normalize(fc2_output)
+        activations['decoder_fc2'] = fc2_output
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
-        fc3_output = fc3_output.reshape(self.input_shape)
-        
-        return fc3_output
+        fc3_output = normalize(fc3_output)
+        activations['decoder_fc3'] = fc3_output
     
-    def encoder_forward(self, x, config):
+    def encoder_forward(self, x, config, activations):
         ## Flatten the output of the convolutional layers
         flattened = x.flatten()
 
         ## Forward pass through the fully connected layers
         fc1_output = flattened @ self.encoder_fc1_weights + self.encoder_fc1_bias
         fc1_output = leaky_relu(fc1_output, config.leaky_relu_alpha)
+        activations['encoder_fc1'] = fc1_output
 
         latent_mean = fc1_output @ self.encoder_fc2_weights_mean + self.encoder_fc2_bias_mean
         latent_mean = leaky_relu(latent_mean, config.leaky_relu_alpha)
         latent_mean = normalize(latent_mean)
+        activations['latent_mean'] = latent_mean
 
         latent_log = fc1_output @ self.encoder_fc2_weights_log_var + self.encoder_fc2_bias_log_var
         latent_log = leaky_relu(latent_log, config.leaky_relu_alpha)
         latent_log = normalize(latent_log)
-
-        return latent_mean, latent_log
+        activations['latent_log'] = latent_log
 
     def pad_output_for_backward_pass(self, output, target_shape):
         num_elements = output.shape[0]
@@ -371,8 +275,7 @@ class nablaVAE:
 
     def update_parameters(self, gradients, learning_rate):
         for k in gradients:
-            value = getattr(self, k)
-            setattr(self, k, value - learning_rate * value)
+            setattr(self, k, getattr(self, k) - learning_rate * gradients[k])
 
 def batched(X, y, size):
     i = 0
