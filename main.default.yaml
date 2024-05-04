@@ -1,5 +1,8 @@
 batch_size: 32
 dataset_path: dataset_train_2k.db
+decoder_fc1_size: 64
+decoder_fc2_size: 128
+encoder_fc1_size: 64
 end_row: 1000
 latent_dim: 100
 leaky_relu_alpha: 0.2

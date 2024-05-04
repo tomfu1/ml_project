@@ -96,21 +96,41 @@ class nablaVAE:
         self.latent_dim = config.latent_dim
 
         # Encoder parameters
-        self.encoder_fc1_weights = torch.randn(np.prod(input_shape), 64, device=device)
-        self.encoder_fc2_weights_mean = torch.randn(64, self.latent_dim, device=device)
-        self.encoder_fc2_weights_log_var = torch.randn(64, self.latent_dim, device=device)
-        self.encoder_fc1_bias = torch.zeros(64, device=device)
+        self.encoder_fc1_weights = torch.randn(
+            np.prod(input_shape),
+            config.encoder_fc1_size,
+            device=device,
+        )
+        self.encoder_fc2_weights_mean = torch.randn(
+            config.encoder_fc1_size,
+            self.latent_dim,
+            device=device,
+        )
+        self.encoder_fc2_weights_log_var = torch.randn(
+            config.encoder_fc1_size,
+            self.latent_dim,
+            device=device,
+        )
+        self.encoder_fc1_bias = torch.zeros(config.encoder_fc1_size, device=device)
         self.encoder_fc2_bias_mean = torch.zeros(self.latent_dim, device=device)
         self.encoder_fc2_bias_log_var = torch.zeros(self.latent_dim, device=device)
 
         # Decoder parameters
-        self.decoder_fc1_weights = torch.randn(self.latent_dim, 64, device=device)
-        self.decoder_fc1_bias = torch.zeros(64, device=device)
+        self.decoder_fc1_weights = torch.randn(self.latent_dim, config.decoder_fc1_size, device=device)
+        self.decoder_fc1_bias = torch.zeros(config.decoder_fc1_size, device=device)
 
         # Output layers for the decoder
-        self.decoder_fc2_weights = torch.randn(64, 128, device=device)
-        self.decoder_fc3_weights = torch.randn(128, np.prod(input_shape), device=device)
-        self.decoder_fc2_bias = torch.zeros(128, device=device)
+        self.decoder_fc2_weights = torch.randn(
+            config.decoder_fc1_size,
+            config.decoder_fc2_size,
+            device=device,
+        )
+        self.decoder_fc3_weights = torch.randn(
+            config.decoder_fc2_size,
+            np.prod(input_shape),
+            device=device,
+        )
+        self.decoder_fc2_bias = torch.zeros(config.decoder_fc2_size, device=device)
         self.decoder_fc3_bias = torch.zeros(np.prod(input_shape), device=device)
 
         # Save input shape for later use
@@ -310,8 +330,10 @@ class nablaVAE:
         fc2_output = fc1_output @ self.decoder_fc2_weights + self.decoder_fc2_bias
         fc2_output = leaky_relu(fc2_output, config.leaky_relu_alpha)
 
-        final = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
-        return final.reshape(self.input_shape)
+        fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
+        fc3_output = fc3_output.reshape(self.input_shape)
+        
+        return fc3_output
     
     def encoder_forward(self, x, config):
         ## Flatten the output of the convolutional layers
@@ -375,16 +397,11 @@ class Config:
     def __init__(
         self,
         *,
-        adam_beta1=0.9,
-        adam_beta2=0.999,
-        adam_epsilon=1e-8,
-        adam_learning_rate=0.001,
         batch_size=32,
         dataset_path='dataset_train_2k.db',
-        decoder_convolution1_kernel=[3, 3],
-        decoder_convolution2_kernel=[3, 3],
-        encoder_convolution1_kernel=[3, 3],
-        encoder_convolution2_kernel=[3, 3],
+        decoder_fc1_size=64,
+        decoder_fc2_size=128,
+        encoder_fc1_size=64,
         end_row=1000,
         latent_dim=100,
         leaky_relu_alpha=0.2,
@@ -398,6 +415,9 @@ class Config:
     ):
         self.batch_size = batch_size
         self.dataset_path = dataset_path
+        self.decoder_fc1_size = decoder_fc1_size
+        self.decoder_fc2_size = decoder_fc2_size
+        self.encoder_fc1_size = encoder_fc1_size
         self.end_row = end_row
         self.latent_dim = latent_dim
         self.leaky_relu_alpha = leaky_relu_alpha
