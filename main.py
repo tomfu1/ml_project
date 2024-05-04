@@ -47,6 +47,7 @@ def train(X, y, config):
                 batch_gradients[k] /= len(X_batch)
             cvae.update_parameters(batch_gradients, config.learning_rate)
 
+            logging.info(f'{cvae.decoder_fc3_weights}')
             logging.debug(f'''Batch {epoch + 1} - {batch_no}:
   Loss: {batch_loss}
   Duration: {datetime.now() - batch_start}''')
@@ -185,18 +186,21 @@ class nablaVAE:
         activations,
     ):
         gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3']) }
+        gradients['decoder_fc3_bias'] = torch.sum(gradients['decoder_fc3_weights'], axis=0)
 
         t = gradients['decoder_fc3_weights'] @ self.decoder_fc3_weights.T
         gradients['decoder_fc2_weights'] = t * leaky_relu_derivative(
             activations['decoder_fc2'],
             config.leaky_relu_derivative_alpha,
         )
+        gradients['decoder_fc2_bias'] = torch.sum(gradients['decoder_fc2_weights'], axis=0)
 
         t = gradients['decoder_fc2_weights'] @ self.decoder_fc2_weights.T
         gradients['decoder_fc1_weights'] = t * leaky_relu_derivative(
             activations['decoder_fc1'],
             config.leaky_relu_derivative_alpha,
         )
+        gradients['decoder_fc1_bias'] = torch.sum(gradients['decoder_fc1_weights'], axis=0)
 
         t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
         gradients['encoder_fc2_weights_mean'] = t * leaky_relu_derivative(
@@ -205,6 +209,7 @@ class nablaVAE:
         )
         kl_div_mean = 0.5 * (2 * latent_mean)
         gradients['encoder_fc2_weights_mean'] += kl_div_mean
+        gradients['encoder_fc2_bias_mean'] = torch.sum(gradients['encoder_fc2_weights_mean'], axis=0)
 
         t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
         gradients['encoder_fc2_weights_log_var'] = t * leaky_relu_derivative(
@@ -213,12 +218,14 @@ class nablaVAE:
         )
         kl_div_log_var = 0.5 * (1 - torch.exp(latent_log))
         gradients['encoder_fc2_weights_log_var'] += kl_div_log_var
+        gradients['encoder_fc2_bias_log_var'] = torch.sum(gradients['encoder_fc2_weights_log_var'], axis=0)
 
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
         gradients['encoder_fc1_weights'] = t * leaky_relu_derivative(
             activations['encoder_fc1'],
             config.leaky_relu_derivative_alpha,
         )
+        gradients['encoder_fc1_bias'] = torch.sum(gradients['encoder_fc1_weights'], axis=0)
 
         return gradients
 
