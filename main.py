@@ -151,7 +151,7 @@ class nablaVAE:
         reconstruction_loss = torch.mean((x - reconstructed_output) ** 2)
 
         ## Compute KL divergence
-        kl_divergence = -0.5 * torch.mean(1 + latent_log - latent_mean ** 2 - torch.exp(latent_log))
+        kl_divergence = -0.5 * torch.sum(1 + latent_log - latent_mean ** 2 - torch.exp(latent_log))
         energy_data = 0
 
         ## Total loss
@@ -256,22 +256,6 @@ class nablaVAE:
         latent_log = leaky_relu(latent_log, config.leaky_relu_alpha)
         latent_log = normalize(latent_log)
         activations['latent_log'] = latent_log
-
-    def pad_output_for_backward_pass(self, output, target_shape):
-        num_elements = output.shape[0]
-        closest_multiple = int(np.ceil(num_elements / 8192) * 8192)
-        # Calculate the padding size
-        padding_size = closest_multiple - num_elements
-        target_shape = (closest_multiple // target_shape[1], target_shape[1])
-
-        # Pad the output tensor with zeros if necessary
-        if padding_size > 0:
-            padded_output = F.pad(output, (0, padding_size), mode='constant')
-        else:
-            padded_output = output
-        reshaped_output = padded_output.reshape(target_shape)
-
-        return reshaped_output
 
     def update_parameters(self, gradients, learning_rate):
         for k in gradients:
