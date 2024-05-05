@@ -18,9 +18,13 @@ def main(config):
     logging.debug(f'Hamiltonian shape: {X_train[0].shape}')
 
     logging.info(f'Starting training ({len(X_train)} samples) ...')
-    train(X_train, y_train, config)
+    xArray =  X_train.cpu().numpy()
+    original_mean = np.mean(xArray, axis=0)
+    original_std = np.std(xArray, axis=0)
+    
+    train(X_train, y_train, config, original_mean, original_std)
 
-def train(X, y, config):
+def train(X, y, config, mean, std):
     cvae = nablaVAE(config, X[0].shape)
 
     for epoch in range(config.num_epochs):
@@ -31,7 +35,7 @@ def train(X, y, config):
             batch_gradients = None
             batch_loss = 0
             for x, target in zip(X_batch, y_batch):
-                loss, gradients = cvae.train_step(x, target, config)
+                loss, gradients = cvae.train_step(x, target, config, mean, std)
 
                 batch_loss += loss
                 if batch_gradients is None:
@@ -112,7 +116,7 @@ class nablaVAE:
         self.decoder_fc3_weights = randn(config.decoder_fc2_size, np.prod(input_shape))
         self.decoder_fc3_bias = zeros(np.prod(input_shape))
 
-    def train_step(self, x, target, config):
+    def train_step(self, x, target, config, mean, std):
         # Forward pass--
         x = normalize(x)
 
@@ -121,19 +125,19 @@ class nablaVAE:
         latent_mean, latent_log = activations['latent_mean'], activations['latent_log']
         latent_vector = reparameterize(latent_mean, latent_log)
 
-        self.decoder_forward(latent_vector, config, activations)
+        self.decoder_forward(latent_vector, config, activations, mean, std)
         reconstructed_output = activations['decoder_fc3'].reshape(self.input_shape)
 
         ## Compute reconstruction loss
         reconstruction_loss = torch.mean((x - reconstructed_output) ** 2)
-
+ 
         ## Compute KL divergence
         kl_divergence = -0.5 * torch.sum(1 + latent_log - latent_mean ** 2 - torch.exp(latent_log))
         energy_data = 0
-
+        
         ## Total loss
         total_loss = reconstruction_loss + kl_divergence + energy_data
-
+        
         # Backward pass and parameter update
         gradients = self.backward(
             x,
@@ -185,10 +189,19 @@ class nablaVAE:
 
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
         gradients['encoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['encoder_fc1'])
+        max_grad_norm=4.0
+        total_norm = torch.norm(torch.stack([torch.norm(grad.detach()) for grad in gradients.values()]))
+
+        # Clip gradients if necessary
+        if total_norm > max_grad_norm:
+            clip_coef = max_grad_norm / (total_norm + 1e-6)
+            for param_name, grad in gradients.items():
+                gradients[param_name] = grad * clip_coef
 
         return gradients
 
-    def decoder_forward(self, latent_vector, config, activations):
+    def decoder_forward(self, latent_vector, config, activations,mean,std):
+        # Forward pass through the decoder
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
         fc1_output = normalize(self.leaky_relu(fc1_output))
         activations['decoder_fc1'] = fc1_output
@@ -198,8 +211,12 @@ class nablaVAE:
         activations['decoder_fc2'] = fc2_output
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
-        activations['decoder_fc3'] = normalize(fc3_output)
-    
+        fc3_output = normalize(fc3_output)
+        std_tensor = torch.tensor(std, device=fc3_output.device)
+        mean_tensor = torch.tensor(mean, device=fc3_output.device)
+        fc3_output  = (fc3_output * torch.flatten(std_tensor)) + torch.flatten(mean_tensor)
+        activations['decoder_fc3'] = fc3_output
+        
     def encoder_forward(self, x, config, activations):
         flattened = x.flatten()
 
