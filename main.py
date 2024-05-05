@@ -8,7 +8,6 @@ from nablaDFT.dataset import hamiltonian_dataset
 import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
-import torch.nn.functional as F
 import yaml
 
 device = "cpu"
@@ -92,48 +91,26 @@ def process_dataset(database, config):
 class nablaVAE:
     def __init__(self, config, input_shape):
         # Initialize network parameters based on input shape and latent dimension
+        self.input_shape = input_shape
         self.latent_dim = config.latent_dim
+        self.leaky_relu_alpha = config.leaky_relu_alpha
+        self.leaky_relu_derivative_alpha = config.leaky_relu_derivative_alpha
 
         # Encoder parameters
-        self.encoder_fc1_weights = torch.randn(
-            np.prod(input_shape),
-            config.encoder_fc1_size,
-            device=device,
-        )
-        self.encoder_fc2_weights_mean = torch.randn(
-            config.encoder_fc1_size,
-            self.latent_dim,
-            device=device,
-        )
-        self.encoder_fc2_weights_log_var = torch.randn(
-            config.encoder_fc1_size,
-            self.latent_dim,
-            device=device,
-        )
-        self.encoder_fc1_bias = torch.zeros(config.encoder_fc1_size, device=device)
-        self.encoder_fc2_bias_mean = torch.zeros(self.latent_dim, device=device)
-        self.encoder_fc2_bias_log_var = torch.zeros(self.latent_dim, device=device)
+        self.encoder_fc1_weights = randn(np.prod(input_shape), config.encoder_fc1_size)
+        self.encoder_fc1_bias = zeros(config.encoder_fc1_size)
+        self.encoder_fc2_weights_mean = randn(config.encoder_fc1_size, self.latent_dim)
+        self.encoder_fc2_bias_mean = zeros(self.latent_dim)
+        self.encoder_fc2_weights_log_var = randn(config.encoder_fc1_size, self.latent_dim)
+        self.encoder_fc2_bias_log_var = zeros(self.latent_dim)
 
         # Decoder parameters
-        self.decoder_fc1_weights = torch.randn(self.latent_dim, config.decoder_fc1_size, device=device)
-        self.decoder_fc1_bias = torch.zeros(config.decoder_fc1_size, device=device)
-
-        # Output layers for the decoder
-        self.decoder_fc2_weights = torch.randn(
-            config.decoder_fc1_size,
-            config.decoder_fc2_size,
-            device=device,
-        )
-        self.decoder_fc3_weights = torch.randn(
-            config.decoder_fc2_size,
-            np.prod(input_shape),
-            device=device,
-        )
-        self.decoder_fc2_bias = torch.zeros(config.decoder_fc2_size, device=device)
-        self.decoder_fc3_bias = torch.zeros(np.prod(input_shape), device=device)
-
-        # Save input shape for later use
-        self.input_shape = input_shape
+        self.decoder_fc1_weights = randn(self.latent_dim, config.decoder_fc1_size)
+        self.decoder_fc1_bias = zeros(config.decoder_fc1_size)
+        self.decoder_fc2_weights = randn(config.decoder_fc1_size, config.decoder_fc2_size)
+        self.decoder_fc2_bias = zeros(config.decoder_fc2_size)
+        self.decoder_fc3_weights = randn(config.decoder_fc2_size, np.prod(input_shape))
+        self.decoder_fc3_bias = zeros(np.prod(input_shape))
 
     def train_step(self, x, target, config):
         # Forward pass--
@@ -170,7 +147,7 @@ class nablaVAE:
             activations,
         )
 
-        return reconstruction_loss + kl_divergence + energy_data, gradients
+        return total_loss, gradients
 
     def backward(
         self,
@@ -187,75 +164,57 @@ class nablaVAE:
         gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3']) }
 
         t = gradients['decoder_fc3_weights'] @ self.decoder_fc3_weights.T
-        gradients['decoder_fc2_weights'] = t * leaky_relu_derivative(
-            activations['decoder_fc2'],
-            config.leaky_relu_derivative_alpha,
-        )
+        gradients['decoder_fc2_weights'] = t * self.leaky_relu_derivative(activations['decoder_fc2'])
 
         t = gradients['decoder_fc2_weights'] @ self.decoder_fc2_weights.T
-        gradients['decoder_fc1_weights'] = t * leaky_relu_derivative(
-            activations['decoder_fc1'],
-            config.leaky_relu_derivative_alpha,
-        )
+        gradients['decoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['decoder_fc1'])
 
         t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
-        gradients['encoder_fc2_weights_mean'] = t * leaky_relu_derivative(
+        gradients['encoder_fc2_weights_mean'] = t * self.leaky_relu_derivative(
             activations['latent_mean'],
-            config.leaky_relu_derivative_alpha,
         )
         kl_div_mean = 0.5 * (2 * latent_mean)
         gradients['encoder_fc2_weights_mean'] += kl_div_mean
 
         t = gradients['decoder_fc1_weights'] @ self.decoder_fc1_weights.T
-        gradients['encoder_fc2_weights_log_var'] = t * leaky_relu_derivative(
+        gradients['encoder_fc2_weights_log_var'] = t * self.leaky_relu_derivative(
             activations['latent_log'],
-            config.leaky_relu_derivative_alpha,
         )
         kl_div_log_var = 0.5 * (1 - torch.exp(latent_log))
         gradients['encoder_fc2_weights_log_var'] += kl_div_log_var
 
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
-        gradients['encoder_fc1_weights'] = t * leaky_relu_derivative(
-            activations['encoder_fc1'],
-            config.leaky_relu_derivative_alpha,
-        )
+        gradients['encoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['encoder_fc1'])
 
         return gradients
 
     def decoder_forward(self, latent_vector, config, activations):
-        # Forward pass through the decoder
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
-        fc1_output = leaky_relu(fc1_output, config.leaky_relu_alpha)
-        fc1_output = normalize(fc1_output)
-        activations['decoder_fc1'] = fc1_output
+        activations['decoder_fc1'] = normalize(self.leaky_relu(fc1_output))
 
         fc2_output = fc1_output @ self.decoder_fc2_weights + self.decoder_fc2_bias
-        fc2_output = leaky_relu(fc2_output, config.leaky_relu_alpha)
-        fc2_output = normalize(fc2_output)
-        activations['decoder_fc2'] = fc2_output
+        activations['decoder_fc2'] = normalize(self.leaky_relu(fc2_output))
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
-        fc3_output = normalize(fc3_output)
-        activations['decoder_fc3'] = fc3_output
+        activations['decoder_fc3'] = normalize(fc3_output)
     
     def encoder_forward(self, x, config, activations):
-        ## Flatten the output of the convolutional layers
         flattened = x.flatten()
 
-        ## Forward pass through the fully connected layers
         fc1_output = flattened @ self.encoder_fc1_weights + self.encoder_fc1_bias
-        fc1_output = leaky_relu(fc1_output, config.leaky_relu_alpha)
-        activations['encoder_fc1'] = fc1_output
+        activations['encoder_fc1'] = normalize(self.leaky_relu(fc1_output))
 
         latent_mean = fc1_output @ self.encoder_fc2_weights_mean + self.encoder_fc2_bias_mean
-        latent_mean = leaky_relu(latent_mean, config.leaky_relu_alpha)
-        latent_mean = normalize(latent_mean)
-        activations['latent_mean'] = latent_mean
+        activations['latent_mean'] = normalize(self.leaky_relu(latent_mean))
 
         latent_log = fc1_output @ self.encoder_fc2_weights_log_var + self.encoder_fc2_bias_log_var
-        latent_log = leaky_relu(latent_log, config.leaky_relu_alpha)
-        latent_log = normalize(latent_log)
-        activations['latent_log'] = latent_log
+        activations['latent_log'] = normalize(self.leaky_relu(latent_log))
+
+    def leaky_relu(self, x):
+        return torch.where(x > 0, x, self.leaky_relu_alpha * x)
+
+    def leaky_relu_derivative(self, x):
+        return torch.where(x > 0, 1, self.leaky_relu_derivative_alpha)
 
     def update_parameters(self, gradients, learning_rate):
         for k in gradients:
@@ -267,18 +226,18 @@ def batched(X, y, size):
         yield X[i:i + size], y[i:i + size]
         i += size
 
-def leaky_relu(x, alpha):
-    return torch.where(x > 0, x, alpha * x)
-
-def leaky_relu_derivative(x, alpha):
-    return torch.where(x > 0, 1, alpha)
-
 def normalize(x):
     return x / torch.max(torch.abs(x))
 
+def randn(*args, **kwargs):
+    return torch.randn(*args, device=device, **kwargs)
+
 def reparameterize(mu, log_var):
-    epsilon = torch.randn(*mu.shape, device=device)
+    epsilon = randn(*mu.shape)
     return mu + torch.exp(0.5 * log_var) * epsilon
+
+def zeros(*args, **kwargs):
+    return torch.zeros(*args, device=device, **kwargs)
 
 class Config:
     def __init__(
