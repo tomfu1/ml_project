@@ -184,7 +184,8 @@ class nablaVAE:
         config,
         activations,
     ):
-        gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3']) }
+        t = -(-x.flatten() - activations['decoder_fc3'])
+        gradients = { 'decoder_fc3_weights': t * sigmoid_derivative(activations['decoder_fc3']) }
 
         t = gradients['decoder_fc3_weights'] @ self.decoder_fc3_weights.T
         gradients['decoder_fc2_weights'] = t * leaky_relu_derivative(
@@ -235,6 +236,7 @@ class nablaVAE:
         activations['decoder_fc2'] = fc2_output
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
+        fc3_output = sigmoid(fc3_output)
         fc3_output = normalize(fc3_output)
         activations['decoder_fc3'] = fc3_output
     
@@ -256,22 +258,6 @@ class nablaVAE:
         latent_log = leaky_relu(latent_log, config.leaky_relu_alpha)
         latent_log = normalize(latent_log)
         activations['latent_log'] = latent_log
-
-    def pad_output_for_backward_pass(self, output, target_shape):
-        num_elements = output.shape[0]
-        closest_multiple = int(np.ceil(num_elements / 8192) * 8192)
-        # Calculate the padding size
-        padding_size = closest_multiple - num_elements
-        target_shape = (closest_multiple // target_shape[1], target_shape[1])
-
-        # Pad the output tensor with zeros if necessary
-        if padding_size > 0:
-            padded_output = F.pad(output, (0, padding_size), mode='constant')
-        else:
-            padded_output = output
-        reshaped_output = padded_output.reshape(target_shape)
-
-        return reshaped_output
 
     def update_parameters(self, gradients, learning_rate):
         for k in gradients:
@@ -295,6 +281,12 @@ def normalize(x):
 def reparameterize(mu, log_var):
     epsilon = torch.randn(*mu.shape, device=device)
     return mu + torch.exp(0.5 * log_var) * epsilon
+
+def sigmoid(x):
+    return 1 / (1 + torch.exp(-x))
+
+def sigmoid_derivative(x):
+    return sigmoid(x) * (1 - sigmoid(x))
 
 class Config:
     def __init__(
