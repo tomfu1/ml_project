@@ -190,10 +190,12 @@ class nablaVAE:
 
     def decoder_forward(self, latent_vector, config, activations):
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
-        activations['decoder_fc1'] = normalize(self.leaky_relu(fc1_output))
+        fc1_output = normalize(self.leaky_relu(fc1_output))
+        activations['decoder_fc1'] = fc1_output
 
         fc2_output = fc1_output @ self.decoder_fc2_weights + self.decoder_fc2_bias
-        activations['decoder_fc2'] = normalize(self.leaky_relu(fc2_output))
+        fc2_output = normalize(self.leaky_relu(fc2_output))
+        activations['decoder_fc2'] = fc2_output
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
         activations['decoder_fc3'] = normalize(fc3_output)
@@ -202,13 +204,16 @@ class nablaVAE:
         flattened = x.flatten()
 
         fc1_output = flattened @ self.encoder_fc1_weights + self.encoder_fc1_bias
-        activations['encoder_fc1'] = normalize(self.leaky_relu(fc1_output))
+        fc1_output = normalize(self.leaky_relu(fc1_output))
+        activations['encoder_fc1'] = fc1_output
 
         latent_mean = fc1_output @ self.encoder_fc2_weights_mean + self.encoder_fc2_bias_mean
-        activations['latent_mean'] = normalize(self.leaky_relu(latent_mean))
+        latent_mean = normalize(self.leaky_relu(latent_mean))
+        activations['latent_mean'] = latent_mean
 
         latent_log = fc1_output @ self.encoder_fc2_weights_log_var + self.encoder_fc2_bias_log_var
-        activations['latent_log'] = normalize(self.leaky_relu(latent_log))
+        latent_log = normalize(self.leaky_relu(latent_log))
+        activations['latent_log'] = latent_log
 
     def leaky_relu(self, x):
         return torch.where(x > 0, x, self.leaky_relu_alpha * x)
