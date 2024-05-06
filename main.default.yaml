@@ -1,4 +1,5 @@
 batch_size: 32
+clip: null
 dataset_path: dataset_train_2k.db
 decoder_fc1_size: 64
 decoder_fc2_size: 128

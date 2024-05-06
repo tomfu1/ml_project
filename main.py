@@ -18,14 +18,12 @@ def main(config):
     logging.debug(f'Hamiltonian shape: {X_train[0].shape}')
 
     logging.info(f'Starting training ({len(X_train)} samples) ...')
-    xArray =  X_train.cpu().numpy()
-    original_mean = np.mean(xArray, axis=0)
-    original_std = np.std(xArray, axis=0)
-    
-    train(X_train, y_train, config, original_mean, original_std)
+    train(X_train, y_train, config)
 
-def train(X, y, config, mean, std):
+def train(X, y, config):
     cvae = nablaVAE(config, X[0].shape)
+    mean = torch.mean(X, axis=0).flatten()
+    std = torch.std(X, axis=0).flatten()
 
     for epoch in range(config.num_epochs):
         epoch_start = datetime.now()
@@ -189,18 +187,21 @@ class nablaVAE:
 
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
         gradients['encoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['encoder_fc1'])
-        #max_grad_norm=4.0
-        #total_norm = torch.norm(torch.stack([torch.norm(grad.detach()) for grad in gradients.values()]))
 
-        ## Clip gradients if necessary
-        #if total_norm > max_grad_norm:
-        #    clip_coef = max_grad_norm / (total_norm + 1e-6)
-        #    for param_name, grad in gradients.items():
-        #        gradients[param_name] = grad * clip_coef
+        if config.clip:
+            total_norm = torch.norm(torch.stack([
+                torch.norm(grad.detach())
+                for grad in gradients.values()
+            ]))
+
+            if total_norm > config.clip:
+                clip_coefficient = config.clip / (total_norm + 1e-6)
+                for k in gradients:
+                    gradients[k] *= clip_coefficient
 
         return gradients
 
-    def decoder_forward(self, latent_vector, config, activations,mean,std):
+    def decoder_forward(self, latent_vector, config, activations, mean, std):
         # Forward pass through the decoder
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
         fc1_output = normalize(self.leaky_relu(fc1_output))
@@ -212,9 +213,8 @@ class nablaVAE:
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
         fc3_output = normalize(fc3_output)
-        #std_tensor = torch.tensor(std, device=fc3_output.device)
-        #mean_tensor = torch.tensor(mean, device=fc3_output.device)
-        #fc3_output  = (fc3_output * torch.flatten(std_tensor)) + torch.flatten(mean_tensor)
+        if config.clip:
+            fc3_output = fc3_output * std + mean
         activations['decoder_fc3'] = fc3_output
         
     def encoder_forward(self, x, config, activations):
@@ -266,6 +266,7 @@ class Config:
         self,
         *,
         batch_size=32,
+        clip=None,
         dataset_path='dataset_train_2k.db',
         decoder_fc1_size=64,
         decoder_fc2_size=128,
@@ -282,6 +283,7 @@ class Config:
         use_gpu=True,
     ):
         self.batch_size = batch_size
+        self.clip = clip
         self.dataset_path = dataset_path
         self.decoder_fc1_size = decoder_fc1_size
         self.decoder_fc2_size = decoder_fc2_size
