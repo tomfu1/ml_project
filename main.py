@@ -165,7 +165,7 @@ class nablaVAE:
         config,
         activations,
     ):
-        gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3']) }
+        gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3'])  * activations['decoder_fc3'] }
 
         t = gradients['decoder_fc3_weights'] @ self.decoder_fc3_weights.T
         gradients['decoder_fc2_weights'] = t * self.leaky_relu_derivative(activations['decoder_fc2'])
@@ -189,14 +189,14 @@ class nablaVAE:
 
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
         gradients['encoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['encoder_fc1'])
-        max_grad_norm=4.0
-        total_norm = torch.norm(torch.stack([torch.norm(grad.detach()) for grad in gradients.values()]))
+        #max_grad_norm=4.0
+        #total_norm = torch.norm(torch.stack([torch.norm(grad.detach()) for grad in gradients.values()]))
 
-        # Clip gradients if necessary
-        if total_norm > max_grad_norm:
-            clip_coef = max_grad_norm / (total_norm + 1e-6)
-            for param_name, grad in gradients.items():
-                gradients[param_name] = grad * clip_coef
+        ## Clip gradients if necessary
+        #if total_norm > max_grad_norm:
+        #    clip_coef = max_grad_norm / (total_norm + 1e-6)
+        #    for param_name, grad in gradients.items():
+        #        gradients[param_name] = grad * clip_coef
 
         return gradients
 
@@ -212,9 +212,9 @@ class nablaVAE:
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
         fc3_output = normalize(fc3_output)
-        std_tensor = torch.tensor(std, device=fc3_output.device)
-        mean_tensor = torch.tensor(mean, device=fc3_output.device)
-        fc3_output  = (fc3_output * torch.flatten(std_tensor)) + torch.flatten(mean_tensor)
+        #std_tensor = torch.tensor(std, device=fc3_output.device)
+        #mean_tensor = torch.tensor(mean, device=fc3_output.device)
+        #fc3_output  = (fc3_output * torch.flatten(std_tensor)) + torch.flatten(mean_tensor)
         activations['decoder_fc3'] = fc3_output
         
     def encoder_forward(self, x, config, activations):
@@ -274,7 +274,7 @@ class Config:
         latent_dim=100,
         leaky_relu_alpha=0.2,
         leaky_relu_derivative_alpha=0.01,
-        learning_rate=0.0001,
+        learning_rate=0.00001,
         num_epochs=25,
         seed=None,
         start_row=0,
