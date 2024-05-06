@@ -35,10 +35,20 @@ def train(X, y, config):
             batch_start = datetime.now()
             batch_gradients = None
             batch_loss = 0
+            batch_reconstruction = 0
+            batch_kl_divergence = 0
             for x, target in zip(X_batch, y_batch):
-                loss, gradients = cvae.train_step(x, target, config, mean, std)
+                reconstruction, kl_divergence, energy, gradients = cvae.train_step(
+                    x,
+                    target,
+                    config,
+                    mean,
+                    std,
+                )
 
-                batch_loss += loss
+                batch_loss += reconstruction + kl_divergence
+                batch_reconstruction += reconstruction
+                batch_kl_divergence += kl_divergence
                 if batch_gradients is None:
                     batch_gradients = gradients
                 else:
@@ -53,6 +63,8 @@ def train(X, y, config):
 
             logging.debug(f'''Batch {epoch + 1} - {batch_no}:
   Loss: {batch_loss}
+  Reconstruction: {batch_reconstruction / len(X_batch)}
+  KL Divergence: {batch_kl_divergence / len(X_batch)}
   Duration: {datetime.now() - batch_start}''')
 
         loss = float(sum(x * y for x, y in losses)) / sum(x for x, _ in losses)
@@ -134,9 +146,6 @@ class nablaVAE:
         kl_divergence = -0.5 * torch.sum(1 + latent_log - latent_mean ** 2 - torch.exp(latent_log))
         energy_data = 0
         
-        ## Total loss
-        total_loss = reconstruction_loss + kl_divergence + energy_data
-        
         # Backward pass and parameter update
         gradients = self.backward(
             x,
@@ -150,7 +159,7 @@ class nablaVAE:
             activations,
         )
 
-        return total_loss, gradients
+        return reconstruction_loss, kl_divergence, energy_data, gradients
 
     def backward(
         self,
