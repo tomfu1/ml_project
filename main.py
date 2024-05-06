@@ -24,6 +24,9 @@ def train(X, y, config):
     cvae = nablaVAE(config, X[0].shape)
     mean = torch.mean(X, axis=0).flatten()
     std = torch.std(X, axis=0).flatten()
+    maxv = torch.max(torch.max(torch.abs(X)), torch.max(torch.abs(y)))
+    X /= maxv
+    y /= maxv
 
     for epoch in range(config.num_epochs):
         epoch_start = datetime.now()
@@ -115,9 +118,7 @@ class nablaVAE:
         self.decoder_fc3_bias = zeros(np.prod(input_shape))
 
     def train_step(self, x, target, config, mean, std):
-        # Forward pass--
-        x = normalize(x)
-
+        # Forward pass
         activations = {}
         self.encoder_forward(x, config, activations)
         latent_mean, latent_log = activations['latent_mean'], activations['latent_log']
