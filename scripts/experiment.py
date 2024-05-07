@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import concurrent.futures
 import copy
 from datetime import datetime
 import itertools
@@ -14,14 +13,13 @@ import tempfile
 
 import yaml
 
-CONFIG_DIR = os.path.join('configurations', datetime.now().isoformat(timespec='seconds'))
+CONFIG_DIR = os.path.join('configurations', datetime.now().isoformat(timespec='seconds').replace(':', 'T').replace('.', 'T'))
 os.makedirs(CONFIG_DIR, exist_ok=True)
 
 def go(args):
     configurations = parse(args.file, args.gpu)
     logging.info(f'Found {len(configurations)} configurations')
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.worker_threads) as e:
-        _ = e.map(worker, list(enumerate(configurations)))
+    _ = list(map(worker, list(enumerate(configurations))))
 
 def parse(fname, gpu=False):
     def parse_value(k, v):
@@ -61,8 +59,12 @@ def worker(job):
         tmpf.flush()
         
         try:
+            if os.name == 'nt':
+                args = [f'env/Scripts/python.exe main.py -j -c {tmpf.name}']
+            else:
+                args = [['env/bin/python', 'main.py', '-j', '-c', tmpf.name]] 
             output = subprocess.run(
-                ['python3', 'main.py', '-j', '-c', tmpf.name],
+                *args,
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
