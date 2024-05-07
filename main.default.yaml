@@ -10,7 +10,7 @@ leaky_relu_alpha: 0.2
 learning_rate: 0.00001
 model_path: null
 num_epochs: 25
-save: False
+save: false
 seed: null
 start_row: 0
 test_size: 0.2
