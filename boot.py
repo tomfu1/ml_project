@@ -13,7 +13,7 @@ def shell(command):
 
 shell('python3 -m venv env')
 shell(f'{pip} install --upgrade pip')
-shell(f'{pip} install torch wheel setuptools')
+shell(f'{pip} install torch==2.3.0 wheel setuptools')
 shell(f'{pip} install torch-sparse torch-scatter torch-cluster -f https://data.pyg.org/whl/torch-2.3.0+cpu.html')
 shell(f'{pip} install git+https://github.com/tomfu1/nablaDFT.git@hack/manifest')
 shell(f'{pip} install scikit-learn numpy PyYAML boto3')
