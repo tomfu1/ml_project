@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 from datetime import datetime
+import json
 import logging
+import os
 import sys
 
 from nablaDFT.dataset import hamiltonian_dataset
@@ -11,6 +13,7 @@ import torch
 import yaml
 
 device = "cpu"
+MODEL_DIR = 'models'
 
 def main(config):
     database = hamiltonian_dataset.HamiltonianDatabase(config.dataset_path)
@@ -18,16 +21,38 @@ def main(config):
     logging.debug(f'Hamiltonian shape: {X_train[0].shape}')
 
     logging.info(f'Starting training ({len(X_train)} samples) ...')
-    train(X_train, y_train, config)
+    model, stats = train(X_train, y_train, config)
+
+    if config.save:
+        if config.model_path:
+            output = config.model_path
+        else:
+            output = os.path.join(
+                MODEL_DIR,
+                f'{datetime.now().isoformat(timespec="seconds")}.pt',
+            )
+        ensure_directory(output)
+        logging.info(f'Saving model to {output} ...')
+        torch.save(model.__dict__, output)
+
+    if args.json:
+        print(json.dumps(stats))
+    else:
+        print('Final statistics:')
+        print(f'  Loss: {stats["loss"]:.4f}')
+        print(f'  Minimum Loss: {stats["minimum_loss"]:.4f}')
+        print(f'  Reconstruction: {stats["reconstruction"]:.4f}')
+        print(f'  KL Divergence: {stats["kl_divergence"]:.4f}')
 
 def train(X, y, config):
-    cvae = nablaVAE(config, X[0].shape)
     mean = torch.mean(X, axis=0).flatten()
     std = torch.std(X, axis=0).flatten()
+    cvae = nablaVAE(config, X[0].shape, mean, std)
     maxv = torch.max(torch.max(torch.abs(X)), torch.max(torch.abs(y)))
     X /= maxv
     y /= maxv
 
+    stats = {}
     for epoch in range(config.num_epochs):
         epoch_start = datetime.now()
         losses = []
@@ -38,17 +63,18 @@ def train(X, y, config):
             batch_reconstruction = 0
             batch_kl_divergence = 0
             for x, target in zip(X_batch, y_batch):
-                reconstruction, kl_divergence, energy, gradients = cvae.train_step(
-                    x,
-                    target,
-                    config,
-                    mean,
-                    std,
-                )
+                reconstruction, kl_divergence, energy, gradients = cvae.train_step(x, target)
 
                 batch_loss += reconstruction + kl_divergence
                 batch_reconstruction += reconstruction
                 batch_kl_divergence += kl_divergence
+                stats['loss'] = reconstruction + kl_divergence
+                if 'minimum_loss' not in stats:
+                    stats['minimum_loss'] = stats['loss']
+                else:
+                    stats['minimum_loss'] = min(stats['minimum_loss'], stats['loss'])
+                stats['reconstruction'] = reconstruction
+                stats['kl_divergence'] = kl_divergence
                 if batch_gradients is None:
                     batch_gradients = gradients
                 else:
@@ -59,7 +85,7 @@ def train(X, y, config):
             batch_loss /= len(X_batch)
             for k, v in batch_gradients.items():
                 batch_gradients[k] /= len(X_batch)
-            cvae.update_parameters(batch_gradients, config.learning_rate)
+            cvae.update_parameters(batch_gradients)
 
             logging.debug(f'''Batch {epoch + 1} - {batch_no}:
   Loss: {batch_loss}
@@ -71,6 +97,11 @@ def train(X, y, config):
         logging.info(f'''Epoch {epoch + 1}:
   Average Loss: {loss}
   Duration: {datetime.now() - epoch_start}''')
+
+    for k in stats:
+        stats[k] = float(stats[k].detach().numpy())
+
+    return cvae, stats
 
 def process_dataset(database, config):
     logging.info(f'Processing dataset ({config.start_row} -> {config.end_row}) ...')
@@ -106,12 +137,15 @@ def process_dataset(database, config):
     )
 
 class nablaVAE:
-    def __init__(self, config, input_shape):
+    def __init__(self, config, input_shape, mean, std):
         # Initialize network parameters based on input shape and latent dimension
+        self.clip = config.clip
         self.input_shape = input_shape
         self.latent_dim = config.latent_dim
         self.leaky_relu_alpha = config.leaky_relu_alpha
-        self.leaky_relu_derivative_alpha = config.leaky_relu_derivative_alpha
+        self.learning_rate = config.learning_rate
+        self.mean = mean
+        self.std = std
 
         # Encoder parameters
         self.encoder_fc1_weights = randn(np.prod(input_shape), config.encoder_fc1_size)
@@ -129,14 +163,20 @@ class nablaVAE:
         self.decoder_fc3_weights = randn(config.decoder_fc2_size, np.prod(input_shape))
         self.decoder_fc3_bias = zeros(np.prod(input_shape))
 
-    def train_step(self, x, target, config, mean, std):
+    @classmethod
+    def load(cls, config):
+        cvae = cls(config, 1, None, None)
+        cvae.__dict__ = torch.load(config.model_path)
+        return cvae
+
+    def train_step(self, x, target):
         # Forward pass
         activations = {}
-        self.encoder_forward(x, config, activations)
+        self.encoder_forward(x, activations)
         latent_mean, latent_log = activations['latent_mean'], activations['latent_log']
         latent_vector = reparameterize(latent_mean, latent_log)
 
-        self.decoder_forward(latent_vector, config, activations, mean, std)
+        self.decoder_forward(latent_vector, activations)
         reconstructed_output = activations['decoder_fc3'].reshape(self.input_shape)
 
         ## Compute reconstruction loss
@@ -155,7 +195,6 @@ class nablaVAE:
             latent_mean,
             latent_log,
             energy_data,
-            config,
             activations,
         )
 
@@ -170,7 +209,6 @@ class nablaVAE:
         latent_mean,
         latent_log,
         energy_data,
-        config,
         activations,
     ):
         gradients = { 'decoder_fc3_weights': -(x.flatten() - activations['decoder_fc3'])  * activations['decoder_fc3'] }
@@ -198,20 +236,20 @@ class nablaVAE:
         t = gradients['encoder_fc2_weights_mean'] @ self.encoder_fc2_weights_mean.T
         gradients['encoder_fc1_weights'] = t * self.leaky_relu_derivative(activations['encoder_fc1'])
 
-        if config.clip:
+        if self.clip:
             total_norm = torch.norm(torch.stack([
                 torch.norm(grad.detach())
                 for grad in gradients.values()
             ]))
 
-            if total_norm > config.clip:
-                clip_coefficient = config.clip / (total_norm + 1e-6)
+            if total_norm > self.clip:
+                clip_coefficient = self.clip / (total_norm + 1e-6)
                 for k in gradients:
                     gradients[k] *= clip_coefficient
 
         return gradients
 
-    def decoder_forward(self, latent_vector, config, activations, mean, std):
+    def decoder_forward(self, latent_vector, activations):
         # Forward pass through the decoder
         fc1_output = latent_vector @ self.decoder_fc1_weights + self.decoder_fc1_bias
         fc1_output = normalize(self.leaky_relu(fc1_output))
@@ -223,11 +261,11 @@ class nablaVAE:
 
         fc3_output = fc2_output @ self.decoder_fc3_weights + self.decoder_fc3_bias
         fc3_output = normalize(fc3_output)
-        if config.clip:
-            fc3_output = fc3_output * std + mean
+        if self.clip:
+            fc3_output = fc3_output * self.std + self.mean
         activations['decoder_fc3'] = fc3_output
         
-    def encoder_forward(self, x, config, activations):
+    def encoder_forward(self, x, activations):
         flattened = x.flatten()
 
         fc1_output = flattened @ self.encoder_fc1_weights + self.encoder_fc1_bias
@@ -242,21 +280,31 @@ class nablaVAE:
         latent_log = normalize(self.leaky_relu(latent_log))
         activations['latent_log'] = latent_log
 
+    def generate(self):
+        activations = {}
+        latent_vector = randn(1, self.latent_dim)
+        self.decoder_forward(latent_vector, activations)
+        return activations['decoder_fc3'].reshape(self.input_shape)
+
     def leaky_relu(self, x):
         return torch.where(x > 0, x, self.leaky_relu_alpha * x)
 
     def leaky_relu_derivative(self, x):
-        return torch.where(x > 0, 1, self.leaky_relu_derivative_alpha)
+        return torch.where(x > 0, 1, self.leaky_relu_alpha)
 
-    def update_parameters(self, gradients, learning_rate):
+    def update_parameters(self, gradients):
         for k in gradients:
-            setattr(self, k, getattr(self, k) - learning_rate * gradients[k])
+            setattr(self, k, getattr(self, k) - self.learning_rate * gradients[k])
 
 def batched(X, y, size):
     i = 0
     while i < len(X):
         yield X[i:i + size], y[i:i + size]
         i += size
+
+def ensure_directory(path):
+    if os.path.dirname(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
 
 def normalize(x):
     return x / torch.max(torch.abs(x))
@@ -281,12 +329,13 @@ class Config:
         decoder_fc1_size=64,
         decoder_fc2_size=128,
         encoder_fc1_size=64,
-        end_row=1000,
+        end_row=2000,
         latent_dim=100,
         leaky_relu_alpha=0.2,
-        leaky_relu_derivative_alpha=0.01,
         learning_rate=0.00001,
+        model_path=None,
         num_epochs=25,
+        save=False,
         seed=None,
         start_row=0,
         test_size=0.2,
@@ -301,9 +350,10 @@ class Config:
         self.end_row = end_row
         self.latent_dim = latent_dim
         self.leaky_relu_alpha = leaky_relu_alpha
-        self.leaky_relu_derivative_alpha = leaky_relu_derivative_alpha
         self.learning_rate = learning_rate
+        self.model_path = model_path
         self.num_epochs = num_epochs
+        self.save = save
         self.seed = seed
         self.start_row = start_row
         self.test_size = test_size
@@ -314,6 +364,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', default='main.yaml')
+    parser.add_argument('-g', '--generate')
+    parser.add_argument('-j', '--json', action='store_true', help='output statistics as json')
     parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
 
@@ -342,4 +394,17 @@ if __name__ == '__main__':
     if config.seed:
         torch.manual_seed(config.seed)
 
-    main(config)
+    if args.generate:
+        if not config.model_path:
+            raise RuntimeError(
+                '`model_path` must be set in configuration file in order to generate hamiltonian data',
+            )
+
+        cvae = nablaVAE.load(config)
+
+        tensor = cvae.generate()
+        logging.info(f'Saving generated tensor to {args.generate} ...')
+        ensure_directory(args.generate)
+        torch.save(tensor, args.generate)
+    else:
+        main(config)

@@ -4,12 +4,13 @@ dataset_path: dataset_train_2k.db
 decoder_fc1_size: 64
 decoder_fc2_size: 128
 encoder_fc1_size: 64
-end_row: 1000
+end_row: 2000
 latent_dim: 100
 leaky_relu_alpha: 0.2
-leaky_relu_derivative_alpha: 0.01
 learning_rate: 0.00001
+model_path: null
 num_epochs: 25
+save: False
 seed: null
 start_row: 0
 test_size: 0.2
