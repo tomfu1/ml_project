@@ -83,18 +83,25 @@ def train(X, y, config):
 
             losses.append((len(X_batch), batch_loss))
             batch_loss /= len(X_batch)
+            if 'max_batch_loss' not in stats:
+                stats['max_batch_loss'] = batch_loss
+            else:
+                stats['max_batch_loss'] = max(stats['max_batch_loss'], batch_loss)
+
             for k, v in batch_gradients.items():
                 batch_gradients[k] /= len(X_batch)
             cvae.update_parameters(batch_gradients)
 
             logging.debug(f'''Batch {epoch + 1} - {batch_no}:
-  Loss: {batch_loss}
-  Reconstruction: {batch_reconstruction / len(X_batch)}
-  KL Divergence: {batch_kl_divergence / len(X_batch)}
+  Loss: {stats["loss"]}
+  Average Loss: {batch_loss}
+  Average Reconstruction: {batch_reconstruction / len(X_batch)}
+  Average KL Divergence: {batch_kl_divergence / len(X_batch)}
   Duration: {datetime.now() - batch_start}''')
 
         loss = float(sum(x * y for x, y in losses)) / sum(x for x, _ in losses)
         logging.info(f'''Epoch {epoch + 1}:
+  Loss: {stats["loss"]}
   Average Loss: {loss}
   Duration: {datetime.now() - epoch_start}''')
 
@@ -364,7 +371,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--config', default='main.yaml')
-    parser.add_argument('-g', '--generate')
+    parser.add_argument('-g', '--generate', metavar='FILE')
     parser.add_argument('-j', '--json', action='store_true', help='output statistics as json')
     parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
@@ -401,7 +408,6 @@ if __name__ == '__main__':
             )
 
         cvae = nablaVAE.load(config)
-
         tensor = cvae.generate()
         logging.info(f'Saving generated tensor to {args.generate} ...')
         ensure_directory(args.generate)
