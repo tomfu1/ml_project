@@ -31,4 +31,4 @@ df['batch'] = df['batch'].astype(str)
 p = sns.relplot(df, x='batch', y='loss', kind='line')
 p.savefig(os.path.join('results', 'run.jpg'))
 with open(os.path.join('results', 'run.json'), 'w') as f:
-    out.write(output.stdout)
+    f.write(output.stdout)
