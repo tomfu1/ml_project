@@ -19,6 +19,7 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 
 def go(args):
     configurations = parse(args.file, args.gpu)
+    logging.info(f'Found {len(configurations)} configurations')
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.worker_threads) as e:
         _ = e.map(worker, list(enumerate(configurations)))
 
