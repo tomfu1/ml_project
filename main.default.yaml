@@ -1,17 +1,48 @@
+# Batch size - gradients are updated per batch
 batch_size: 32
-clip: null
+
+# Location of hamiltonian database file
 dataset_path: dataset_train_2k.db
+
+# First fully-connected layer of decoder neuron count
 decoder_fc1_size: 64
+
+# Second fully-connected layer of decoder neuron count
 decoder_fc2_size: 128
+
+# Fully-connected layer of encoder neuron count
 encoder_fc1_size: 64
+
+# Preprocess rows of database up to end_row (max: 2000)
 end_row: 2000
+
+# Dimensions of latent vector
 latent_dim: 100
+
+# Alpha for leaky reLu activation
 leaky_relu_alpha: 0.2
+
+# Learning rate for weight updates
 learning_rate: 0.00001
+
+# Path to model
+# If training and save is true:
+#   if model_path is null:
+#     Write model into models/{timestamp}.pt 
+#   else:
+#     Write mode to model_path
+# else if --generate:
+#   Load model from model_path and generate tensor    
 model_path: null
+
+# Number of epochs to train
 num_epochs: 25
+
+# Save model after training
 save: false
-seed: null
+
+# Preprocess rows of database starting at start_row (min: 0)
 start_row: 0
-test_size: 0.2
+
+# Use gpu for network computation
 use_gpu: true
