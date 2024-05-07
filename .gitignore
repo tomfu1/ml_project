@@ -5,3 +5,5 @@ main.yaml
 cloud.yaml
 models
 .python-version
+configurations
+results
