@@ -64,16 +64,20 @@ learning_rate: 0.000001
 
 1. Train model using (optional) `main.yaml` as configuration file.
 
-   `$ python main.py`
+   `$ env/bin/python main.py`
 
 2. Generate hamiltonian tensor and output to `generated.pt` using `model_path` specified in configuration.
 
-   `$ python main.py --generate generated.pt`
+   `$ env/bin/python main.py --generate generated.pt`
 
 3. Train model and output batch statistics
 
-   `$ python main.py -v`
+   `$ env/bin/python main.py -v`
 
 4. Train model and output final statistics as json
 
-   `$ python main.py --json`
+   `$ env/bin/python main.py --json`
+
+5. Train model using the default configuration file
+
+   `$ env/bin/python main.py -c main.default.yaml`
