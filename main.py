@@ -20,6 +20,7 @@ from nablaDFT.dataset import hamiltonian_dataset
 import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
+import tqdm
 import yaml
 
 device = "cpu"
@@ -324,8 +325,17 @@ def batched(X, y, size):
 def download_dataset(path):
     with urllib.request.urlopen(DATASET_URL) as f:
         assert f.status == 200, 'Expected download of database to be ok'
+        total_size = int(f.headers['Content-Length'])
+        block_size = 1024
+        progress_bar = tqdm(total=total_size, unit='B', unit_scale=True)
         with open(path, 'wb') as out:
-            shutil.copyfileobj(f, out)
+            while True:
+                data = f.read(block_size)
+                if not data:
+                    break
+                out.write(data)
+                progress_bar.update(len(data))
+        progress_bar.close()
 
 def ensure_directory(path):
     if os.path.dirname(path):
