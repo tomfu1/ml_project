@@ -20,7 +20,7 @@ from nablaDFT.dataset import hamiltonian_dataset
 import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
-import tqdm
+from tqdm import tqdm
 import yaml
 
 device = "cpu"
