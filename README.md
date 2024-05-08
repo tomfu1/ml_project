@@ -20,7 +20,7 @@ pip install scikit-learn numpy PyYAML boto3
 
 ## Data
 
-The database can be downloaded [here](https://n-usr-31b1j.s3pd12.sbercloud.ru/b-usr-31b1j-qz9/data/moses_db/dataset_train_2k.db). By default, `main.py` expects the database to be located at `./dataset_train_2k.db`. However, this can be configured in the YAML configuration file, which is discussed further below.
+The database can be downloaded [here](https://drive.google.com/file/d/15f9Dcy1rFrBEHFNN1FNjSWbFoW_A4CyF/view). By default, `main.py` expects the database to be located at `./dataset_train_2k.db`. However, this can be configured in the YAML configuration file, which is discussed further below.
 
 ## Options
 
