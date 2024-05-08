@@ -24,7 +24,7 @@ def go(args):
 def parse(fname, gpu=False):
     def parse_value(k, v):
         if v == 'null': return None
-        if k in ['clip', 'leaky_relu_alpha', 'learning_rate']: return float(v)
+        if k in ['clip', 'leaky_relu_alpha', 'learning_rate', 'warmup_learning_rate']: return float(v)
         return int(v)
 
     configurations = []

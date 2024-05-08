@@ -1,5 +1,13 @@
 #!/usr/bin/env python
 
+# Team Members:
+#  nis190000 Nate Simmons
+#  rxk190056 Rahul Kolla
+#  sxc180101 Sanjith Chockan
+#  jkd190003 James Dao
+#  kcb160130 Krishan Bansal
+#  tsd130130 Thomas Drablos
+
 from datetime import datetime
 import json
 import logging
@@ -40,7 +48,6 @@ def main(config):
     else:
         print('Final statistics:')
         print(f'  Loss: {stats["loss"]:.4f}')
-        print(f'  Minimum Loss: {stats["minimum_loss"]:.4f}')
         print(f'  Reconstruction: {stats["reconstruction"]:.4f}')
         print(f'  KL Divergence: {stats["kl_divergence"]:.4f}')
 
@@ -69,10 +76,6 @@ def train(X, y, config):
                 batch_reconstruction += reconstruction
                 batch_kl_divergence += kl_divergence
                 stats['loss'] = reconstruction + kl_divergence
-                if 'minimum_loss' not in stats:
-                    stats['minimum_loss'] = stats['loss']
-                else:
-                    stats['minimum_loss'] = min(stats['minimum_loss'], stats['loss'])
                 stats['reconstruction'] = reconstruction
                 stats['kl_divergence'] = kl_divergence
                 if batch_gradients is None:
@@ -83,14 +86,14 @@ def train(X, y, config):
 
             losses.append((len(X_batch), batch_loss))
             batch_loss /= len(X_batch)
-            if 'max_batch_loss' not in stats:
-                stats['max_batch_loss'] = batch_loss
-            else:
-                stats['max_batch_loss'] = max(stats['max_batch_loss'], batch_loss)
-
             for k, v in batch_gradients.items():
                 batch_gradients[k] /= len(X_batch)
-            cvae.update_parameters(batch_gradients)
+
+            if cvae.warmup and cvae.warmup > batch_no:
+                learning_rate = cvae.warmup_learning_rate
+            else:
+                learning_rate = cvae.learning_rate
+            cvae.update_parameters(batch_gradients, learning_rate)
 
             logging.debug(f'''Batch {epoch + 1} - {batch_no}:
   Loss: {stats["loss"]}
@@ -153,6 +156,8 @@ class nablaVAE:
         self.learning_rate = config.learning_rate
         self.mean = mean
         self.std = std
+        self.warmup = config.warmup
+        self.warmup_learning_rate = config.warmup_learning_rate
 
         # Encoder parameters
         self.encoder_fc1_weights = randn(np.prod(input_shape), config.encoder_fc1_size)
@@ -299,9 +304,9 @@ class nablaVAE:
     def leaky_relu_derivative(self, x):
         return torch.where(x > 0, 1, self.leaky_relu_alpha)
 
-    def update_parameters(self, gradients):
+    def update_parameters(self, gradients, learning_rate):
         for k in gradients:
-            setattr(self, k, getattr(self, k) - self.learning_rate * gradients[k])
+            setattr(self, k, getattr(self, k) - learning_rate * gradients[k])
 
 def batched(X, y, size):
     i = 0
@@ -333,20 +338,22 @@ class Config:
         batch_size=32,
         clip=None,
         dataset_path='dataset_train_2k.db',
-        decoder_fc1_size=64,
-        decoder_fc2_size=128,
-        encoder_fc1_size=64,
+        decoder_fc1_size=127,
+        decoder_fc2_size=255,
+        encoder_fc1_size=127,
         end_row=2000,
-        latent_dim=100,
-        leaky_relu_alpha=0.2,
-        learning_rate=0.00001,
+        latent_dim=200,
+        leaky_relu_alpha=0.01,
+        learning_rate=0.000000001,
         model_path=None,
-        num_epochs=25,
+        num_epochs=4,
         save=False,
-        seed=None,
+        seed=862,
         start_row=0,
         test_size=0.2,
-        use_gpu=True,
+        use_gpu=False,
+        warmup=120,
+        warmup_learning_rate=0.00001,
     ):
         self.batch_size = batch_size
         self.clip = clip
@@ -365,6 +372,8 @@ class Config:
         self.start_row = start_row
         self.test_size = test_size
         self.use_gpu = use_gpu
+        self.warmup = warmup
+        self.warmup_learning_rate = warmup_learning_rate
 
 if __name__ == '__main__':
     import argparse

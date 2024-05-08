@@ -1,5 +1,13 @@
 #!/usr/bin/env python
 
+# Team Members:
+#  nis190000 Nate Simmons
+#  rxk190056 Rahul Kolla
+#  sxc180101 Sanjith Chockan
+#  jkd190003 James Dao
+#  kcb160130 Krishan Bansal
+#  tsd130130 Thomas Drablos
+
 import os
 import subprocess
 

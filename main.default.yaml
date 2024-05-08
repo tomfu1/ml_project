@@ -1,3 +1,13 @@
+# YAML Configuration file
+
+# Team Members:
+#  nis190000 Nate Simmons
+#  rxk190056 Rahul Kolla
+#  sxc180101 Sanjith Chockan
+#  jkd190003 James Dao
+#  kcb160130 Krishan Bansal
+#  tsd130130 Thomas Drablos
+
 # Batch size - gradients are updated per batch
 batch_size: 32
 
@@ -5,25 +15,25 @@ batch_size: 32
 dataset_path: dataset_train_2k.db
 
 # First fully-connected layer of decoder neuron count
-decoder_fc1_size: 64
+decoder_fc1_size: 127
 
 # Second fully-connected layer of decoder neuron count
-decoder_fc2_size: 128
+decoder_fc2_size: 255
 
 # Fully-connected layer of encoder neuron count
-encoder_fc1_size: 64
+encoder_fc1_size: 127
 
 # Preprocess rows of database up to end_row (max: 2000)
 end_row: 2000
 
 # Dimensions of latent vector
-latent_dim: 100
+latent_dim: 200
 
 # Alpha for leaky reLu activation
-leaky_relu_alpha: 0.2
+leaky_relu_alpha: 0.01
 
 # Learning rate for weight updates
-learning_rate: 0.00001
+learning_rate: 0.000000001
 
 # Path to model
 # If training and save is true:
@@ -36,7 +46,7 @@ learning_rate: 0.00001
 model_path: null
 
 # Number of epochs to train
-num_epochs: 25
+num_epochs: 4
 
 # Save model after training
 save: false
@@ -45,4 +55,8 @@ save: false
 start_row: 0
 
 # Use gpu for network computation
-use_gpu: true
+use_gpu: false
+
+# Use warmup_learning_rate for warmup batches, then switch to learning_rate
+warmup: 120
+warmup_learning_rate: 0.00001

@@ -14,13 +14,17 @@ if os.name == 'nt':
 else:
     args = [['env/bin/python', 'main.py', '-v', '-j']]
 
-output = subprocess.run(
-    *args,
-    check=True,
-    stderr=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    text=True,
-)
+try:
+    output = subprocess.run(
+        *args,
+        check=True,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+except subprocess.CalledProcessError as e:
+    print(e.stderr)
+    raise e
 
 data = []
 for i, m in enumerate(re.finditer(r'DEBUG:root:Batch \d+ - \d+:\s+Loss:\s+(?P<loss>\d+\.\d+)', output.stderr)):
