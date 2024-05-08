@@ -12,7 +12,9 @@ from datetime import datetime
 import json
 import logging
 import os
+import shutil
 import sys
+import urllib.request
 
 from nablaDFT.dataset import hamiltonian_dataset
 import numpy as np
@@ -22,8 +24,13 @@ import yaml
 
 device = "cpu"
 MODEL_DIR = 'models'
+DATASET_URL = 'https://n-usr-31b1j.s3pd12.sbercloud.ru/b-usr-31b1j-qz9/data/moses_db/dataset_train_2k.db'
 
 def main(config):
+    if not os.path.isdir(config.dataset_path):
+        logging.info(f'Downloading dataset to path `{config.dataset_path}` ...')
+        download_dataset(config.dataset_path)
+
     database = hamiltonian_dataset.HamiltonianDatabase(config.dataset_path)
     X_train, X_test, y_train, y_test = process_dataset(database, config)
     logging.debug(f'Hamiltonian shape: {X_train[0].shape}')
@@ -313,6 +320,12 @@ def batched(X, y, size):
     while i < len(X):
         yield X[i:i + size], y[i:i + size]
         i += size
+
+def download_dataset(path):
+    with urllib.request.urlopen(DATASET_URL) as f:
+        assert f.status == 200, 'Expected download of database to be ok'
+        with open(path, 'wb') as out:
+            shutil.copyfileobj(f, out)
 
 def ensure_directory(path):
     if os.path.dirname(path):
